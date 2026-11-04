@@ -1,0 +1,112 @@
+name: Release to TestFlight
+
+# Deploys are triggered deliberately, never on every merge:
+#   - push a tag:      git tag v1.0.1 && git push origin v1.0.1
+#   - or run by hand from the Actions tab.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      changelog:
+        description: "What testers should see in TestFlight"
+        required: false
+        default: "Automated build"
+
+# Never let two uploads race for the same build number.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  APP_IDENTIFIER: com.example.ciplayground
+  TEST_DEVICE: iPhone 16
+
+jobs:
+  # Gate the deploy on the same tests CI runs. Shipping a tag that was never
+  # tested is the single most common way a "working" pipeline burns you.
+  verify:
+    name: Verify
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Install build tools
+        run: brew install xcodegen xcbeautify
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Test
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project CIPlayground.xcodeproj \
+            -scheme CIPlayground \
+            -destination "platform=iOS Simulator,name=$TEST_DEVICE,OS=latest" \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
+
+  testflight:
+    name: Build & upload
+    needs: verify
+    runs-on: macos-latest
+    # A GitHub Environment gives you a manual approval gate and scopes these
+    # secrets so they are not readable by every other workflow in the repo.
+    environment: testflight
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Install build tools
+        run: brew install xcodegen
+
+      - name: Set up Ruby and fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          # Honours .ruby-version; bundler-cache restores vendor/bundle from
+          # Gemfile.lock so fastlane isn't reinstalled on every run.
+          bundler-cache: true
+
+      - name: Upload to TestFlight
+        run: bundle exec fastlane beta
+        env:
+          # --- App Store Connect API key (replaces an Apple ID + 2FA) ---
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          # The .p8 file, base64-encoded (see docs/CD_SETUP.md).
+          APP_STORE_CONNECT_KEY_P8: ${{ secrets.APP_STORE_CONNECT_KEY_P8 }}
+
+          # --- Code signing via fastlane match ---
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          # base64("x-access-token:<PAT with read access to the certs repo>")
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
+          APP_IDENTIFIER: ${{ env.APP_IDENTIFIER }}
+          CHANGELOG: ${{ inputs.changelog || format('Build from {0}', github.ref_name) }}
+
+          # fastlane breaks in subtle ways under a non-UTF-8 locale.
+          LANG: en_US.UTF-8
+          LC_ALL: en_US.UTF-8
+          FASTLANE_HIDE_CHANGELOG: "true"
+          FASTLANE_SKIP_UPDATE_CHECK: "true"
+
+      - name: Upload .ipa as a build artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipa
+          path: build/*.ipa
+          if-no-files-found: ignore
+          retention-days: 14

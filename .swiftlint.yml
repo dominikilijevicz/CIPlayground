@@ -1,0 +1,33 @@
+# Keep the rule set small and deliberate: a linter that fails constantly
+# just teaches people to ignore CI.
+included:
+  - Sources
+  - Tests
+  - UITests
+
+excluded:
+  - build
+  - DerivedData
+
+disabled_rules:
+  - todo
+
+opt_in_rules:
+  - empty_count
+  - closure_spacing
+  - explicit_init
+  - redundant_nil_coalescing
+
+line_length:
+  warning: 120
+  error: 160
+  ignores_comments: true
+
+identifier_name:
+  min_length: 2
+
+type_body_length:
+  warning: 300
+
+file_length:
+  warning: 400

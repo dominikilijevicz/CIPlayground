@@ -1,0 +1,118 @@
+name: CI
+
+# Runs on every push to main and every pull request. This is the gate that
+# protects main, so it must be fast and it must never be flaky.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes the older run pointless. Cancelling it
+# frees the runner immediately.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  SCHEME: CIPlayground
+  PROJECT: CIPlayground.xcodeproj
+  # Device name, not OS version: pinning the OS breaks whenever GitHub
+  # updates the runner image.
+  TEST_DEVICE: iPhone 16
+
+jobs:
+  lint:
+    name: SwiftLint
+    # `macos-latest` moves when GitHub promotes a new image. For a real project,
+    # pin it (e.g. macos-15) and bump deliberately.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Lint
+        # --strict turns warnings into errors, so style debt can't accumulate.
+        run: swiftlint lint --strict --reporter github-actions-logging
+
+  test:
+    name: Build & Test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          echo "Xcodes available on this image:"
+          ls -1 /Applications | grep -i '^Xcode' || true
+          sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
+
+      - name: Install build tools
+        run: brew install xcodegen xcbeautify
+
+      - name: Generate Xcode project
+        # The .xcodeproj is not committed; project.yml is the source of truth.
+        run: xcodegen generate
+
+      - name: Show available test destinations
+        # Cheap insurance: when a destination disappears from a new runner
+        # image, this step tells you exactly what to change TEST_DEVICE to.
+        run: |
+          xcodebuild -project "$PROJECT" -scheme "$SCHEME" -showdestinations 2>/dev/null \
+            | grep -i 'iOS Simulator' || true
+
+      - name: Build for testing
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "platform=iOS Simulator,name=$TEST_DEVICE,OS=latest" \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
+
+      - name: Run tests
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "platform=iOS Simulator,name=$TEST_DEVICE,OS=latest" \
+            -derivedDataPath build/DerivedData \
+            -resultBundlePath build/TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
+
+      - name: Test summary
+        # Writes a readable table into the run's Summary tab so you don't have
+        # to scroll raw xcodebuild logs to find out what broke.
+        if: always()
+        run: |
+          [ -d build/TestResults.xcresult ] || exit 0
+          xcrun xcresulttool get test-results summary \
+            --path build/TestResults.xcresult --format json > summary.json
+          {
+            echo "## Test results"
+            echo
+            jq -r '"- **Result:** \(.result)",
+                   "- **Passed:** \(.passedTests)",
+                   "- **Failed:** \(.failedTests)",
+                   "- **Skipped:** \(.skippedTests)"' summary.json
+            jq -r '.testFailures[]? | "  - `\(.testName)` \u2014 \(.failureText)"' summary.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload test results
+        # Only on failure: the bundle is large and useless when everything passed.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: build/TestResults.xcresult
+          retention-days: 7

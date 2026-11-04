@@ -1,0 +1,25 @@
+# XcodeGen generates these; project.yml is the source of truth.
+*.xcodeproj
+*.xcworkspace
+Sources/Info.plist
+
+# Build output
+build/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.xcresult
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+fastlane/README.md
+
+# Ruby
+vendor/bundle/
+.bundle/
+
+# macOS
+.DS_Store

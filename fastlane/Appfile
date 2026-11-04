@@ -1,0 +1,4 @@
+# Values come from the environment so nothing identifying is committed.
+# Locally: put them in a .env file (gitignored). On CI: GitHub secrets/vars.
+app_identifier ENV.fetch("APP_IDENTIFIER", "com.example.ciplayground")
+team_id        ENV["DEVELOPMENT_TEAM"]
