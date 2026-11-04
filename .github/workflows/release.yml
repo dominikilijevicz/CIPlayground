@@ -43,27 +43,32 @@ jobs:
         run: xcodegen generate
 
       - name: Resolve simulator destination
-        # Runner images rotate device types without warning: this pipeline's
-        # first run died because `iPhone 16` was no longer on the image.
-        # Pick the first device from a preference list that actually exists,
-        # and fail loudly with the real list if none do.
+        # Device types come and go with the runner image: this pipeline's first
+        # run asked for `iPhone 16`, which macos-latest no longer ships.
+        #
+        # simctl is the stable interface for "which simulators exist". It needs
+        # no project, and unlike `xcodebuild -showdestinations` it does not
+        # split its output across stdout and stderr -- discarding stderr there
+        # is what made the second attempt at this step parse nothing.
         run: |
-          available=$(xcodebuild -project CIPlayground.xcodeproj -scheme CIPlayground -showdestinations 2>/dev/null \
-            | grep 'platform:iOS Simulator' \
-            | sed -n 's/.*name:\([^}]*\)}.*/\1/p' \
-            | sed 's/[[:space:]]*$//' | sort -u)
-          echo "iPhone simulators on this image:"
-          echo "$available" | grep '^iPhone' | sed 's/^/  /'
+          set -o pipefail
+          available=$(xcrun simctl list devices available -j \
+            | jq -r '.devices | to_entries[]
+                     | select(.key | test("SimRuntime.iOS"))
+                     | .value[] | .name' \
+            | sort -u)
+          echo "Available iOS simulators:"
+          printf '%s\n' "$available" | sed 's/^/  /'
           for want in "iPhone 17" "iPhone 16" "iPhone 15"; do
-            if echo "$available" | grep -qx "$want"; then
+            if printf '%s\n' "$available" | grep -qx "$want"; then
               echo "TEST_DEVICE=$want" >> "$GITHUB_ENV"
               echo "Selected $want"
               exit 0
             fi
           done
-          fallback=$(echo "$available" | grep '^iPhone' | head -1)
+          fallback=$(printf '%s\n' "$available" | grep '^iPhone' | head -1)
           if [ -z "$fallback" ]; then
-            echo "::error::No iPhone simulator on this runner image"
+            echo "::error::No iPhone simulator available on this runner"
             exit 1
           fi
           echo "TEST_DEVICE=$fallback" >> "$GITHUB_ENV"

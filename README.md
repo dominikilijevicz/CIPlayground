@@ -89,8 +89,14 @@ git tag v1.0.1 && git push origin v1.0.1
 - **Simulator destinations rot.** This pipeline's very first run failed with
   `exit code 70` because `iPhone 16` didn't exist on the runner image — it
   ships 16e, 17, 17 Pro, 17e and Air, but no plain 16. Both workflows now
-  resolve the device at runtime from a preference list and fail with the real
-  list if nothing matches. Pin the OS with `OS=latest`, never a number.
+  resolve the device at runtime via `simctl` and fail with the real list if
+  nothing matches. Pin the OS with `OS=latest`, never a number.
+- **`xcodebuild -showdestinations` splits output across stdout and stderr.**
+  The first attempt at that resolver did `2>/dev/null` and parsed an empty
+  string on CI, because the device list landed on the stream being discarded.
+  `xcrun simctl list devices available -j` needs no project, is much faster,
+  and writes one clean stream. Reach for `simctl` to ask what simulators
+  exist, and for `xcodebuild` only to build.
 - **fastlane hid that bug; `xcodebuild` found it.** `scan` fuzzy-matches device
   names, so `bundle exec fastlane test` passed locally against `iPhone 16` by
   quietly resolving it to `iPhone 16e`. Plain `xcodebuild` requires an exact
