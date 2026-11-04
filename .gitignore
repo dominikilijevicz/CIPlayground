@@ -23,3 +23,8 @@ vendor/bundle/
 
 # macOS
 .DS_Store
+
+# Local fastlane environment (real secrets live here)
+fastlane/.env
+fastlane/.env.*
+!fastlane/.env.example
