@@ -20,9 +20,8 @@ permissions:
 env:
   SCHEME: CIPlayground
   PROJECT: CIPlayground.xcodeproj
-  # Device name, not OS version: pinning the OS breaks whenever GitHub
-  # updates the runner image.
-  TEST_DEVICE: iPhone 16
+  # TEST_DEVICE is set at runtime by the "Resolve simulator destination"
+  # step, because device names come and go with the runner image.
 
 jobs:
   lint:
@@ -60,12 +59,32 @@ jobs:
         # The .xcodeproj is not committed; project.yml is the source of truth.
         run: xcodegen generate
 
-      - name: Show available test destinations
-        # Cheap insurance: when a destination disappears from a new runner
-        # image, this step tells you exactly what to change TEST_DEVICE to.
+      - name: Resolve simulator destination
+        # Runner images rotate device types without warning: this pipeline's
+        # first run died because `iPhone 16` was no longer on the image.
+        # Pick the first device from a preference list that actually exists,
+        # and fail loudly with the real list if none do.
         run: |
-          xcodebuild -project "$PROJECT" -scheme "$SCHEME" -showdestinations 2>/dev/null \
-            | grep -i 'iOS Simulator' || true
+          available=$(xcodebuild -project "$PROJECT" -scheme "$SCHEME" -showdestinations 2>/dev/null \
+            | grep 'platform:iOS Simulator' \
+            | sed -n 's/.*name:\([^}]*\)}.*/\1/p' \
+            | sed 's/[[:space:]]*$//' | sort -u)
+          echo "iPhone simulators on this image:"
+          echo "$available" | grep '^iPhone' | sed 's/^/  /'
+          for want in "iPhone 17" "iPhone 16" "iPhone 15"; do
+            if echo "$available" | grep -qx "$want"; then
+              echo "TEST_DEVICE=$want" >> "$GITHUB_ENV"
+              echo "Selected $want"
+              exit 0
+            fi
+          done
+          fallback=$(echo "$available" | grep '^iPhone' | head -1)
+          if [ -z "$fallback" ]; then
+            echo "::error::No iPhone simulator on this runner image"
+            exit 1
+          fi
+          echo "TEST_DEVICE=$fallback" >> "$GITHUB_ENV"
+          echo "Selected fallback $fallback"
 
       - name: Build for testing
         run: |

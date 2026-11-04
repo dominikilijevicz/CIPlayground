@@ -86,9 +86,16 @@ git tag v1.0.1 && git push origin v1.0.1
 
 ## Things that will bite you
 
-- **Don't pin the simulator OS version.** `OS=latest` with a device *name*
-  survives runner image updates; `OS=18.2` does not. The CI workflow prints
-  available destinations so a break is one line to fix.
+- **Simulator destinations rot.** This pipeline's very first run failed with
+  `exit code 70` because `iPhone 16` didn't exist on the runner image — it
+  ships 16e, 17, 17 Pro, 17e and Air, but no plain 16. Both workflows now
+  resolve the device at runtime from a preference list and fail with the real
+  list if nothing matches. Pin the OS with `OS=latest`, never a number.
+- **fastlane hid that bug; `xcodebuild` found it.** `scan` fuzzy-matches device
+  names, so `bundle exec fastlane test` passed locally against `iPhone 16` by
+  quietly resolving it to `iPhone 16e`. Plain `xcodebuild` requires an exact
+  match. Convenient abstractions can mask a misconfiguration until something
+  stricter runs.
 - **`macos-latest` moves.** It's convenient for practice and a liability for
   reproducibility. Pin it (`macos-15`) once you care, and bump on purpose.
 - **Build numbers come from the server.** `latest_testflight_build_number + 1`

@@ -23,7 +23,6 @@ permissions:
 
 env:
   APP_IDENTIFIER: com.example.ciplayground
-  TEST_DEVICE: iPhone 16
 
 jobs:
   # Gate the deploy on the same tests CI runs. Shipping a tag that was never
@@ -42,6 +41,33 @@ jobs:
 
       - name: Generate Xcode project
         run: xcodegen generate
+
+      - name: Resolve simulator destination
+        # Runner images rotate device types without warning: this pipeline's
+        # first run died because `iPhone 16` was no longer on the image.
+        # Pick the first device from a preference list that actually exists,
+        # and fail loudly with the real list if none do.
+        run: |
+          available=$(xcodebuild -project CIPlayground.xcodeproj -scheme CIPlayground -showdestinations 2>/dev/null \
+            | grep 'platform:iOS Simulator' \
+            | sed -n 's/.*name:\([^}]*\)}.*/\1/p' \
+            | sed 's/[[:space:]]*$//' | sort -u)
+          echo "iPhone simulators on this image:"
+          echo "$available" | grep '^iPhone' | sed 's/^/  /'
+          for want in "iPhone 17" "iPhone 16" "iPhone 15"; do
+            if echo "$available" | grep -qx "$want"; then
+              echo "TEST_DEVICE=$want" >> "$GITHUB_ENV"
+              echo "Selected $want"
+              exit 0
+            fi
+          done
+          fallback=$(echo "$available" | grep '^iPhone' | head -1)
+          if [ -z "$fallback" ]; then
+            echo "::error::No iPhone simulator on this runner image"
+            exit 1
+          fi
+          echo "TEST_DEVICE=$fallback" >> "$GITHUB_ENV"
+          echo "Selected fallback $fallback"
 
       - name: Test
         run: |

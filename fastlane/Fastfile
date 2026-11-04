@@ -8,7 +8,7 @@ opt_out_usage
 PROJECT        = "CIPlayground.xcodeproj"
 SCHEME         = "CIPlayground"
 APP_IDENTIFIER = ENV.fetch("APP_IDENTIFIER", "com.example.ciplayground")
-TEST_DEVICE    = ENV.fetch("TEST_DEVICE", "iPhone 16")
+TEST_DEVICE    = ENV.fetch("TEST_DEVICE", "iPhone 17")
 OUTPUT_DIR     = "build"
 
 platform :ios do
