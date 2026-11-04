@@ -22,7 +22,7 @@ public struct Counter: Equatable, Sendable {
 
     /// Increases the value by `amount`, clamped to `bounds`.
     public mutating func increment(by amount: Int = 1) {
-        value = max(bounds.lowerBound, value + amount)
+        value = min(bounds.upperBound, value + amount)
     }
 
     /// Decreases the value by `amount`, clamped to `bounds`.
